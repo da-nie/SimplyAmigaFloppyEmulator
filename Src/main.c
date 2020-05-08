@@ -124,14 +124,24 @@ int main(void)
  DRIVE_READY_Zero(); 
  DRIVE_TRACK0_Zero();
  
- uint8_t last_side=0;
- uint32_t counter=0;
+ static const size_t BLOCK_AMOUNT=12800/512;
+  
+ struct SBlock
+ {
+  uint8_t Track;
+  uint8_t Side;	 
+ };
+ 
+ SBlock sBlock[BLOCK_AMOUNT];
+ for(size_t n=0;n<BLOCK_AMOUNT;n++)
+ {
+	sBlock[n].Track=0xff;
+  sBlock[n].Side=3;
+ }
+ uint8_t block=0;
  //запускаем вывод данных в SPI
  memset(TrackBuffer,0,TRACK_SIZE);
  HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
- 
- size_t track_offset=0;
- 
  while(1)
  {
 	__disable_irq();
@@ -142,44 +152,36 @@ int main(void)
   uint8_t side;	 
   if (DRIVE_SIDE1_Get()==true) side=0;
                           else side=1;
-  if (side!=last_side) update=true;	 
-	last_side=side;
-	if (update==true)//требуется обновление данных
-	{   		
-   memset(TrackBuffer,0,TRACK_SIZE);
+	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
+	{
+   HAL_SPI_DMAStop(&hspi2);		
+	 sBlock[block].Side=side;
+   sBlock[block].Track=track;
+		
+   size_t track_offset=block*512;
 	 uint32_t offset=track;
 	 offset*=2;
 	 offset+=side;
 	 offset*=TRACK_SIZE;
+	 offset+=block*512;
 	 f_lseek(&File,offset);
-	 counter=12800/512;
-	 track_offset=0;		
-		
-	 char str[55];
-	 sprintf(str,"T:%i S:%i",track,side);
-	 cDisplayStandardLibrary.Print(str,IDisplay::COLOR_BLACK);
-		
-	 HAL_SPI_DMAStop(&hspi2);	 
-	 //HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);
-	}		
-	if (counter>0)
-	{
-   //останавливаем вывод в SPI
 	 UINT readen;
    if (f_read(&File,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
 	 {
-	  cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);	 
+	  cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);
 		while(1);
 	 }
 	 if (readen!=512)
 	 {
-	  cDisplayStandardLibrary.Print("Не считал",IDisplay::COLOR_BLACK);	 
+	  cDisplayStandardLibrary.Print("Не считал",IDisplay::COLOR_BLACK);
 		while(1);
 	 }
-	 counter--;
-	 track_offset+=512;
-	 if (counter==0) HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);
+   //HAL_SPI_DMAStop(&hspi2);
+	 //HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer+track_offset,TRACK_SIZE-track_offset);	
 	}	
+	block++;
+	block%=BLOCK_AMOUNT;
+  //HAL_SPI_DMAStop(&hspi2);
  }
  f_close(&File); 
 }
