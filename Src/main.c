@@ -16,8 +16,8 @@
 //макроопределения
 //****************************************************************************************************
 
-#define DRIVE_OUTPUT_GPIO_PIN_INDEX		GPIO_PIN_14
-#define DRIVE_OUTPUT_GPIO_INDEX				GPIOC
+#define DRIVE_OUTPUT_GPIO_PIN_CHDISK		GPIO_PIN_14
+#define DRIVE_OUTPUT_GPIO_CHDISK				GPIOC
 
 #define DRIVE_OUTPUT_GPIO_PIN_TRACK0	GPIO_PIN_13
 #define DRIVE_OUTPUT_GPIO_TRACK0			GPIOC
@@ -75,8 +75,8 @@ static void GPIO_Init(void);//инициализация портов
 
 void FindSD(void);//поиск и инициализация SD-карты
 
-void DRIVE_INDEX_One(void);//установить Index в 1
-void DRIVE_INDEX_Zero(void);//установить Index в 0
+void DRIVE_CHDISK_One(void);//установить Index в 1
+void DRIVE_CHDISK_Zero(void);//установить Index в 0
 
 void DRIVE_TRACK0_One(void);//установить Track0 в 1
 void DRIVE_TRACK0_Zero(void);//установить Track0 в 0
@@ -120,7 +120,7 @@ int main(void)
  Track=0;//номер трэка
  Side=0;//номер стороны  
  
- DRIVE_INDEX_One();
+ DRIVE_CHDISK_One();
  DRIVE_READY_Zero(); 
  DRIVE_TRACK0_Zero();
  
@@ -142,6 +142,7 @@ int main(void)
  //запускаем вывод данных в SPI
  memset(TrackBuffer,0,TRACK_SIZE);
  HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
+ size_t last_offset=0;
  while(1)
  {
 	__disable_irq();
@@ -154,7 +155,8 @@ int main(void)
                           else side=1;
 	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
 	{
-   HAL_SPI_DMAStop(&hspi2);		
+	 //HAL_SPI_DMAStop(&hspi2);		
+	 HAL_SPI_DMAPause(&hspi2);
 	 sBlock[block].Side=side;
    sBlock[block].Track=track;
 		
@@ -163,8 +165,9 @@ int main(void)
 	 offset*=2;
 	 offset+=side;
 	 offset*=TRACK_SIZE;
-	 offset+=block*512;
-	 f_lseek(&File,offset);
+	 offset+=block*512;	
+	 if (last_offset!=offset) f_lseek(&File,offset);		
+	 last_offset=offset+512;
 	 UINT readen;
    if (f_read(&File,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
 	 {
@@ -176,12 +179,11 @@ int main(void)
 	  cDisplayStandardLibrary.Print("Не считал",IDisplay::COLOR_BLACK);
 		while(1);
 	 }
-   //HAL_SPI_DMAStop(&hspi2);
-	 //HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer+track_offset,TRACK_SIZE-track_offset);	
-	}	
+	 HAL_SPI_DMAResume(&hspi2);
+	}
+	
 	block++;
-	block%=BLOCK_AMOUNT;
-  //HAL_SPI_DMAStop(&hspi2);
+	block%=BLOCK_AMOUNT;  
  }
  f_close(&File); 
 }
@@ -199,7 +201,7 @@ void RCC_Init(void)
  RCC_OscInitStruct.HSIState=RCC_HSI_ON;
  RCC_OscInitStruct.PLL.PLLState=RCC_PLL_ON;
  RCC_OscInitStruct.PLL.PLLSource=RCC_PLLSOURCE_HSE;
- RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL16;
+ RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL9;
  //RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL9;	
  if (HAL_RCC_OscConfig(&RCC_OscInitStruct)!=HAL_OK)
  {
@@ -212,7 +214,7 @@ void RCC_Init(void)
  RCC_ClkInitStruct.APB1CLKDivider=RCC_HCLK_DIV2;
  RCC_ClkInitStruct.APB2CLKDivider=RCC_HCLK_DIV1;
 
- if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2)!=HAL_OK)
+ if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct,FLASH_LATENCY_2)!=HAL_OK)
  {
   _Error_Handler(__FILE__,__LINE__);
  }
@@ -233,7 +235,7 @@ static void SPI2_Init(void)
  hspi2.Init.CLKPolarity=SPI_POLARITY_LOW;
  hspi2.Init.CLKPhase=SPI_PHASE_1EDGE;
  hspi2.Init.NSS=SPI_NSS_SOFT;
- hspi2.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_128;
+ hspi2.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_64;
  hspi2.Init.FirstBit=SPI_FIRSTBIT_MSB;
  hspi2.Init.TIMode=SPI_TIMODE_DISABLE;
  hspi2.Init.CRCCalculation=SPI_CRCCALCULATION_DISABLE;
@@ -277,8 +279,8 @@ static void GPIO_Init(void)
  GPIO_InitStruct.Mode=GPIO_MODE_OUTPUT_PP;
  GPIO_InitStruct.Speed=GPIO_SPEED_FREQ_HIGH;
 	
- GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_INDEX;
- HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_INDEX,&GPIO_InitStruct);
+ GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_CHDISK;
+ HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_CHDISK,&GPIO_InitStruct);
 	
  GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_TRACK0;
  HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_TRACK0,&GPIO_InitStruct);
@@ -309,16 +311,16 @@ static void GPIO_Init(void)
 //----------------------------------------------------------------------------------------------------
 //установить Index в 1
 //----------------------------------------------------------------------------------------------------
-void DRIVE_INDEX_One(void)
+void DRIVE_CHDISK_One(void)
 {
- HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_INDEX,DRIVE_OUTPUT_GPIO_PIN_INDEX,GPIO_PIN_SET);	
+ HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_CHDISK,DRIVE_OUTPUT_GPIO_PIN_CHDISK,GPIO_PIN_SET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Index в 0
 //----------------------------------------------------------------------------------------------------
-void DRIVE_INDEX_Zero(void)
+void DRIVE_CHDISK_Zero(void)
 {
- HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_INDEX,DRIVE_OUTPUT_GPIO_PIN_INDEX,GPIO_PIN_RESET);	
+ HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_CHDISK,DRIVE_OUTPUT_GPIO_PIN_CHDISK,GPIO_PIN_RESET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Track0 в 1
@@ -411,9 +413,6 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
  {
   if(hspi2.TxXferCount==0)
   {
-   //выдаем Index 
-	 DRIVE_INDEX_Zero();
-	 DRIVE_INDEX_One();
 	 //запускаем вывод данных в SPI		
 	 HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);			 
   }
