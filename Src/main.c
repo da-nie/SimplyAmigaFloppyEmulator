@@ -16,8 +16,8 @@
 //макроопределения
 //****************************************************************************************************
 
-#define DRIVE_OUTPUT_GPIO_PIN_INDEX		GPIO_PIN_14
-#define DRIVE_OUTPUT_GPIO_INDEX				GPIOC
+#define DRIVE_OUTPUT_GPIO_PIN_CHDISK		GPIO_PIN_14
+#define DRIVE_OUTPUT_GPIO_CHDISK				GPIOC
 
 #define DRIVE_OUTPUT_GPIO_PIN_TRACK0	GPIO_PIN_13
 #define DRIVE_OUTPUT_GPIO_TRACK0			GPIOC
@@ -61,6 +61,7 @@ static FIL File;
 volatile bool Update=true;
 volatile uint8_t Track=0;//номер трэка
 volatile uint8_t Side=0;//номер стороны
+volatile bool DMADone=true;
 
 static uint8_t TrackBuffer[TRACK_SIZE];
 
@@ -75,8 +76,8 @@ static void GPIO_Init(void);//инициализация портов
 
 void FindSD(void);//поиск и инициализация SD-карты
 
-void DRIVE_INDEX_One(void);//установить Index в 1
-void DRIVE_INDEX_Zero(void);//установить Index в 0
+void DRIVE_CHDISK_One(void);//установить Index в 1
+void DRIVE_CHDISK_Zero(void);//установить Index в 0
 
 void DRIVE_TRACK0_One(void);//установить Track0 в 1
 void DRIVE_TRACK0_Zero(void);//установить Track0 в 0
@@ -118,13 +119,15 @@ int main(void)
  
  Update=true;
  Track=0;//номер трэка
- Side=0;//номер стороны  
+ Side=0;//номер стороны 
+ DMADone=true;
  
- DRIVE_INDEX_One();
- DRIVE_READY_Zero(); 
+ DRIVE_CHDISK_One();
  DRIVE_TRACK0_Zero();
- 
- static const size_t BLOCK_AMOUNT=12800/512;
+ DRIVE_READY_Zero();
+  
+ static const size_t BLOCK_SIZE=12800;
+ static const size_t BLOCK_AMOUNT=12800/BLOCK_SIZE;
   
  struct SBlock
  {
@@ -138,50 +141,73 @@ int main(void)
 	sBlock[n].Track=0xff;
   sBlock[n].Side=3;
  }
- uint8_t block=0;
+ 
  //запускаем вывод данных в SPI
- memset(TrackBuffer,0,TRACK_SIZE);
+ memset(TrackBuffer,0,TRACK_SIZE); 
  HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
+ uint32_t block=0;
  while(1)
  {
 	__disable_irq();
 	bool update=Update;
   Update=false;
-  uint8_t track=Track;
+  uint8_t track=Track;	
+	bool done=DMADone;
   __enable_irq();
   uint8_t side;	 
   if (DRIVE_SIDE1_Get()==true) side=0;
                           else side=1;
 	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
-	{
-   HAL_SPI_DMAStop(&hspi2);		
+	{  
+   //DRIVE_CHDISK_One();
+   //__disable_irq();
+	 //DMADone=true;
+	 //__enable_irq(); 
+		
 	 sBlock[block].Side=side;
    sBlock[block].Track=track;
 		
-   size_t track_offset=block*512;
+   size_t track_offset=block*BLOCK_SIZE;
 	 uint32_t offset=track;
 	 offset*=2;
 	 offset+=side;
 	 offset*=TRACK_SIZE;
-	 offset+=block*512;
+	 offset+=block*BLOCK_SIZE;
 	 f_lseek(&File,offset);
 	 UINT readen;
-   if (f_read(&File,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
+   if (f_read(&File,TrackBuffer+track_offset,sizeof(uint8_t)*BLOCK_SIZE,&readen)!=FR_OK)
 	 {
 	  cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);
 		while(1);
 	 }
-	 if (readen!=512)
+	 if (readen!=BLOCK_SIZE)
 	 {
 	  cDisplayStandardLibrary.Print("Не считал",IDisplay::COLOR_BLACK);
 		while(1);
-	 }
-   //HAL_SPI_DMAStop(&hspi2);
-	 //HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer+track_offset,TRACK_SIZE-track_offset);	
+	 }	 
+	}	
+  bool ok=true;
+	for(size_t n=0;n<BLOCK_AMOUNT;n++)
+	{
+	 if (sBlock[n].Side!=side || sBlock[n].Track!=track)	  
+	 {
+    ok=false;
+		break;
+	 }			
+	}  
+	if (ok==true && done==true) 
+	{
+   __disable_irq();
+	 DMADone=false;
+	 __enable_irq(); 
+	 HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);			
+	}
+	if (ok==false && done==true) 
+	{
+	 HAL_SPI_DMAStop(&hspi2);	
 	}	
 	block++;
-	block%=BLOCK_AMOUNT;
-  //HAL_SPI_DMAStop(&hspi2);
+  if (block>=BLOCK_AMOUNT) block=0;
  }
  f_close(&File); 
 }
@@ -277,8 +303,8 @@ static void GPIO_Init(void)
  GPIO_InitStruct.Mode=GPIO_MODE_OUTPUT_PP;
  GPIO_InitStruct.Speed=GPIO_SPEED_FREQ_HIGH;
 	
- GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_INDEX;
- HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_INDEX,&GPIO_InitStruct);
+ GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_CHDISK;
+ HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_CHDISK,&GPIO_InitStruct);
 	
  GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_TRACK0;
  HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_TRACK0,&GPIO_InitStruct);
@@ -309,16 +335,16 @@ static void GPIO_Init(void)
 //----------------------------------------------------------------------------------------------------
 //установить Index в 1
 //----------------------------------------------------------------------------------------------------
-void DRIVE_INDEX_One(void)
+void DRIVE_CHDISK_One(void)
 {
- HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_INDEX,DRIVE_OUTPUT_GPIO_PIN_INDEX,GPIO_PIN_SET);	
+ HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_CHDISK,DRIVE_OUTPUT_GPIO_PIN_CHDISK,GPIO_PIN_SET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Index в 0
 //----------------------------------------------------------------------------------------------------
-void DRIVE_INDEX_Zero(void)
+void DRIVE_CHDISK_Zero(void)
 {
- HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_INDEX,DRIVE_OUTPUT_GPIO_PIN_INDEX,GPIO_PIN_RESET);	
+ HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_CHDISK,DRIVE_OUTPUT_GPIO_PIN_CHDISK,GPIO_PIN_RESET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Track0 в 1
@@ -398,7 +424,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 	 }
 	}
   if (Track==0) DRIVE_TRACK0_Zero();
-           else DRIVE_TRACK0_One(); } 
+           else DRIVE_TRACK0_One();
+ } 
  __enable_irq();
 }
 
@@ -411,11 +438,9 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
  {
   if(hspi2.TxXferCount==0)
   {
-   //выдаем Index 
-	 DRIVE_INDEX_Zero();
-	 DRIVE_INDEX_One();
-	 //запускаем вывод данных в SPI		
-	 HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);			 
+   //запускаем вывод данных в SPI		
+	 //HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);			 
+	 DMADone=true;
   }
  }
 }
