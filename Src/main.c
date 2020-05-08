@@ -126,26 +126,16 @@ int main(void)
  DRIVE_TRACK0_Zero();
  DRIVE_READY_Zero();
   
- static const size_t BLOCK_SIZE=12800;
+ static const size_t BLOCK_SIZE=512;
  static const size_t BLOCK_AMOUNT=12800/BLOCK_SIZE;
-  
- struct SBlock
- {
-  uint8_t Track;
-  uint8_t Side;	 
- };
- 
- SBlock sBlock[BLOCK_AMOUNT];
- for(size_t n=0;n<BLOCK_AMOUNT;n++)
- {
-	sBlock[n].Track=0xff;
-  sBlock[n].Side=3;
- }
  
  //запускаем вывод данных в SPI
  memset(TrackBuffer,0,TRACK_SIZE); 
  HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
- uint32_t block=0;
+ uint8_t last_side=0;
+ size_t track_offset=0;
+ uint8_t counter=0;
+ size_t begin_tick=0;
  while(1)
  {
 	__disable_irq();
@@ -157,23 +147,28 @@ int main(void)
   uint8_t side;	 
   if (DRIVE_SIDE1_Get()==true) side=0;
                           else side=1;
-	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
-	{  
-   //DRIVE_CHDISK_One();
-   //__disable_irq();
-	 //DMADone=true;
-	 //__enable_irq(); 
-		
-	 sBlock[block].Side=side;
-   sBlock[block].Track=track;
-		
-   size_t track_offset=block*BLOCK_SIZE;
+	if (last_side!=side) update=true;
+  last_side=side;	 
+	 	 
+	if (update==true)//требуется обновление данных
+	{
+	 begin_tick=HAL_GetTick();
+		/*
+	 HAL_SPI_DMAStop(&hspi2);
+   __disable_irq();
+	 DMADone=true;
+	 __enable_irq();
+		*/
 	 uint32_t offset=track;
 	 offset*=2;
 	 offset+=side;
 	 offset*=TRACK_SIZE;
-	 offset+=block*BLOCK_SIZE;
 	 f_lseek(&File,offset);
+	 track_offset=0;
+	 counter=BLOCK_AMOUNT;
+	}
+	if (counter>0)
+	{
 	 UINT readen;
    if (f_read(&File,TrackBuffer+track_offset,sizeof(uint8_t)*BLOCK_SIZE,&readen)!=FR_OK)
 	 {
@@ -184,30 +179,24 @@ int main(void)
 	 {
 	  cDisplayStandardLibrary.Print("Не считал",IDisplay::COLOR_BLACK);
 		while(1);
-	 }	 
-	}	
-  bool ok=true;
-	for(size_t n=0;n<BLOCK_AMOUNT;n++)
-	{
-	 if (sBlock[n].Side!=side || sBlock[n].Track!=track)	  
+	 }
+	 track_offset+=512;
+	 counter--;
+	 if (counter==0)
 	 {
-    ok=false;
-		break;
-	 }			
-	}  
-	if (ok==true && done==true) 
+    size_t time=HAL_GetTick()-begin_tick;
+    char str[25];
+		sprintf(str,"D:%i мс",time);
+		cDisplayStandardLibrary.Print(str,IDisplay::COLOR_BLACK); 
+	 }
+	}	
+	if (counter==0 && done==true) 
 	{
    __disable_irq();
 	 DMADone=false;
 	 __enable_irq(); 
-	 HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);			
+	 HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);
 	}
-	if (ok==false && done==true) 
-	{
-	 HAL_SPI_DMAStop(&hspi2);	
-	}	
-	block++;
-  if (block>=BLOCK_AMOUNT) block=0;
  }
  f_close(&File); 
 }
