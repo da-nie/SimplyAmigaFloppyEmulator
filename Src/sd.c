@@ -141,7 +141,7 @@ SD_ANSWER SD_Init(void)
  hspi.Init.CLKPolarity=SPI_POLARITY_LOW;
  hspi.Init.CLKPhase=SPI_PHASE_1EDGE;
  hspi.Init.NSS=SPI_NSS_SOFT;
- hspi.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_4;
+ hspi.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_2;
  hspi.Init.FirstBit=SPI_FIRSTBIT_MSB;
  hspi.Init.TIMode=SPI_TIMODE_DISABLE;
  hspi.Init.CRCCalculation=SPI_CRCCALCULATION_DISABLE;
@@ -282,7 +282,7 @@ bool SD_SendCommand(uint8_t cmd,uint8_t b0,uint8_t b1,uint8_t b2,uint8_t b3,uint
  //отправляем команду и считаем её CRC7
  uint8_t crc7=0; 
  uint8_t cmd_buf[5]={cmd,b3,b2,b1,b0};
- uint16_t n;
+ uint32_t n;
  for(n=0;n<5;n++)
  {
   SD_TransmitData(cmd_buf[n]);
@@ -308,7 +308,7 @@ bool SD_SendCommand(uint8_t cmd,uint8_t b0,uint8_t b1,uint8_t b2,uint8_t b3,uint
    answer[0]=res; 
    break;
   }
-	HAL_Delay(1);
+	//HAL_Delay(1);
  }
  if (n==65535) return(false);
  for(n=1;n<answer_size;n++)
@@ -323,7 +323,7 @@ bool SD_SendCommand(uint8_t cmd,uint8_t b0,uint8_t b1,uint8_t b2,uint8_t b3,uint
 //----------------------------------------------------------------------------------------------------
 bool SD_GetSize(uint32_t *size)
 {
- uint16_t n;
+ uint32_t n;
  uint8_t answer[ANSWER_R1_SIZE];
  if (SD_SendCommand(CMD9,0x00,0x00,0x00,0x00,ANSWER_R1_SIZE,answer)==false) return(false);//ответ не принят
  //считываем 16 байт данных ответа R1
@@ -350,8 +350,6 @@ bool SD_GetSize(uint32_t *size)
   uint32_t read_bl_len=GetBits(b,83,80);
   uint32_t block_size=(1UL<<read_bl_len);
   //пока мне неизвестно, как из этих цифр получить объём карты памяти 
-
- 
  }
  else//обычная SD-карта
  {
@@ -381,12 +379,12 @@ bool SD_BeginReadBlock(uint32_t BlockAddr)
  if (ret==false || answer[0]!=0) return(false);//ошибка команды
  SD_TransmitData(0xff);//байтовый промежуток
  //ждём начало поступления данных
- uint16_t n;
+ uint32_t n;
  for(n=0;n<65535;n++)
  {
   uint8_t res=SD_TransmitData(0xff);
   if (res==0xfe) break;//маркер получен
-  HAL_Delay(1);
+  //HAL_Delay(1);
  }
  if (n==65535) return(false);//маркер начала данных не получен
  BlockByteCounter=0;
@@ -424,12 +422,12 @@ bool SD_ReadBlock(uint32_t BlockAddr,uint8_t *Addr)
  if (ret==false || answer[0]!=0) return(false);//ошибка команды
  SD_TransmitData(0xff);//байтовый промежуток
  //ждём начало поступления данных
- uint16_t n;
+ uint32_t n;
  for(n=0;n<65535;n++)
  {
   uint8_t res=SD_TransmitData(0xff);
   if (res==0xfe) break;//маркер получен
-  HAL_Delay(1);
+  //HAL_Delay(1);
  }
  if (n==65535) return(false);//маркер начала данных не получен
  for(n=0;n<512;n++,Addr++)
@@ -483,7 +481,7 @@ bool SD_WriteBlock(uint32_t BlockAddr,const uint8_t *Addr)
  {
   res=SD_TransmitData(0xff);
   if (res==0xff) break;//линия DO снова в 1; карта произвела запись
-	HAL_Delay(1);
+	//HAL_Delay(1);
  } 
  return(true);
 }
