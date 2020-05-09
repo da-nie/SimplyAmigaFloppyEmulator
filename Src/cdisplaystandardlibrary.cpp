@@ -239,7 +239,7 @@ static const unsigned char Font8x8[224][14]=
  {0x00,0x00,0x60,0x60,0x7C,0x66,0x7C,0x00},
  {0x00,0x00,0x7C,0x06,0x3E,0x06,0x7C,0x00},
  {0x00,0x00,0xCE,0xDB,0xFB,0xDB,0xCE,0x00},
- {0x00,0x00,0x3E,0x66,0x3E,0x36,0x66,0x00}
+ {0x00,0x00,0x3E,0x66,0x3E,0x36,0x66,0x00} 
 };
 
 //****************************************************************************************************
@@ -311,6 +311,37 @@ void CDisplayStandardLibrary::PutSymbolHorizontal(int32_t x,int32_t y,uint8_t sy
 //****************************************************************************************************
 //открытые функции
 //****************************************************************************************************
+
+//----------------------------------------------------------------------------------------------------
+//очистить позицию
+//----------------------------------------------------------------------------------------------------
+void CDisplayStandardLibrary::ClearSymbol(int32_t x,int32_t y,uint16_t color)
+{
+ if (OrientationVertical==false)
+ {	 
+  for(int32_t ys=0;ys<FONT_HEIGHT;ys++)
+  {
+   for(int32_t xs=0;xs<FONT_WIDTH;xs++)
+   {
+    if (x+xs<0 || x+xs>=iDisplay_Ptr->DISPLAY_HEIGHT) continue;
+    if (y+ys<0 || y+ys>=iDisplay_Ptr->DISPLAY_WIDTH) continue;		 
+    iDisplay_Ptr->PutPixel(iDisplay_Ptr->DISPLAY_WIDTH-(y+ys),x+xs,color);
+   }
+  }
+ }
+ else
+ {
+  for(int32_t ys=0;ys<FONT_HEIGHT;ys++)
+  {
+   for(int32_t xs=0;xs<FONT_WIDTH;xs++)
+   {   
+    if (x+xs<0 || x+xs>=iDisplay_Ptr->DISPLAY_WIDTH) continue;
+    if (y+ys<0 || y+ys>=iDisplay_Ptr->DISPLAY_HEIGHT) continue;
+    iDisplay_Ptr->PutPixel(x+xs,y+ys,color);
+   }
+  }	 
+ }	 
+}
 
 //----------------------------------------------------------------------------------------------------
 //вывод символа в позицию

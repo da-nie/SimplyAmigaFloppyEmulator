@@ -46,6 +46,7 @@ class CDisplayStandardLibrary
   ~CDisplayStandardLibrary();
  public:
   //-открытые функции-----------------------------------------------------------------------------------
+  void ClearSymbol(int32_t x,int32_t y,uint16_t color);//очистить позицию
   void PutSymbol(int32_t x,int32_t y,char symbol,uint16_t color);//вывод символа в позицию
   void PutString(int32_t x,int32_t y,const char *string,uint16_t color);//вывод строчки в позицию
   void Print(const char *string,uint16_t color);//вывести текст в текущую позицию

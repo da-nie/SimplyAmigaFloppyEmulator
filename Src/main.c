@@ -19,31 +19,41 @@
 #define DRIVE_OUTPUT_GPIO_PIN_CHDISK		GPIO_PIN_14
 #define DRIVE_OUTPUT_GPIO_CHDISK				GPIOC
 
-#define DRIVE_OUTPUT_GPIO_PIN_TRACK0	GPIO_PIN_13
-#define DRIVE_OUTPUT_GPIO_TRACK0			GPIOC
+#define DRIVE_OUTPUT_GPIO_PIN_TRACK0		GPIO_PIN_13
+#define DRIVE_OUTPUT_GPIO_TRACK0				GPIOC
 
-//#define DRIVE_OUTPUT_GPIO_PIN_CHANGE	GPIO_PIN_2
-//#define DRIVE_OUTPUT_GPIO_CHANGE			GPIOA
+#define DRIVE_OUTPUT_GPIO_PIN_DIR				GPIO_PIN_3
+#define DRIVE_OUTPUT_GPIO_DIR						GPIOA
 
-#define DRIVE_OUTPUT_GPIO_PIN_DIR			GPIO_PIN_3
-#define DRIVE_OUTPUT_GPIO_DIR					GPIOA
+#define DRIVE_OUTPUT_GPIO_PIN_READY			GPIO_PIN_2
+#define DRIVE_OUTPUT_GPIO_READY					GPIOA
 
-#define DRIVE_OUTPUT_GPIO_PIN_READY		GPIO_PIN_2
-#define DRIVE_OUTPUT_GPIO_READY				GPIOA
+#define DRIVE_OUTPUT_GPIO_PIN_STEP			GPIO_PIN_0
+#define DRIVE_OUTPUT_GPIO_STEP					GPIOA
 
-#define DRIVE_OUTPUT_GPIO_PIN_STEP		GPIO_PIN_0
-#define DRIVE_OUTPUT_GPIO_STEP				GPIOA
+#define DRIVE_OUTPUT_GPIO_PIN_SIDE1			GPIO_PIN_1
+#define DRIVE_OUTPUT_GPIO_SIDE1					GPIOA
 
-#define DRIVE_OUTPUT_GPIO_PIN_SIDE1		GPIO_PIN_1
-#define DRIVE_OUTPUT_GPIO_SIDE1				GPIOA
+#define BUTTON_OUTPUT_GPIO_PIN_UP				GPIO_PIN_10
+#define BUTTON_OUTPUT_GPIO_UP						GPIOB
 
-#define MAX_TRACK 79
+#define BUTTON_OUTPUT_GPIO_PIN_DOWN			GPIO_PIN_4
+#define BUTTON_OUTPUT_GPIO_DOWN					GPIOA
 
-#define TRACK_SIZE 12800
+#define BUTTON_OUTPUT_GPIO_PIN_SELECT		GPIO_PIN_11
+#define BUTTON_OUTPUT_GPIO_SELECT				GPIOB
+
+#define BUTTON_OUTPUT_GPIO_PIN_CENTER		GPIO_PIN_1
+#define BUTTON_OUTPUT_GPIO_CENTER				GPIOB
 
 //****************************************************************************************************
 //константы
 //****************************************************************************************************
+
+static const size_t MAX_TRACK=79;//максимальный номер дорожки
+static const size_t TRACK_SIZE=12800;//размер дорожки
+static const size_t MAX_LEVEL=10;//максимальный уровень вложенности директорий
+static const size_t MAX_PATH=255;//максимальный путь
 
 //****************************************************************************************************
 //глобальные переменные
@@ -55,14 +65,14 @@ DMA_HandleTypeDef hdma_spi2_rx;
 CDisplayNokia5110 cDisplay;//дисплей
 IDisplay *iDisplay_Ptr=&cDisplay;//указатель на дисплей
 CDisplayStandardLibrary cDisplayStandardLibrary(iDisplay_Ptr,true);//стандартная библиотека дисплея
-static FATFS FatFS; 
-static FIL File;
 
-volatile bool Update=true;
+volatile bool Update=true;//требуется ли обновление данных дорожки
 volatile uint8_t Track=0;//номер трэка
 volatile uint8_t Side=0;//номер стороны
 
-static uint8_t TrackBuffer[TRACK_SIZE];
+static uint8_t TrackBuffer[TRACK_SIZE];//буфер дорожки
+static FATFS FatFS;//файловая система
+
 
 //****************************************************************************************************
 //прототипы функций
@@ -73,20 +83,28 @@ static void SPI2_Init(void);//инициализация SPI2
 static void DMA_Init(void);//инициализация DMA
 static void GPIO_Init(void);//инициализация портов
 
-void FindSD(void);//поиск и инициализация SD-карты
+static bool OutputFile(const char *filename,const char *short_name);//вывод файла
+static void FindSD(void);//поиск и инициализация SD-карты
+static void SelectFile(void);//выбор файла
+void PathMenu(const char *path);//вывод меню выбора файла в папке
 
-void DRIVE_CHDISK_One(void);//установить Index в 1
-void DRIVE_CHDISK_Zero(void);//установить Index в 0
+static void DRIVE_CHDISK_One(void);//установить Index в 1
+static void DRIVE_CHDISK_Zero(void);//установить Index в 0
 
-void DRIVE_TRACK0_One(void);//установить Track0 в 1
-void DRIVE_TRACK0_Zero(void);//установить Track0 в 0
+static void DRIVE_TRACK0_One(void);//установить Track0 в 1
+static void DRIVE_TRACK0_Zero(void);//установить Track0 в 0
 
-void DRIVE_READY_One(void);//установить Ready в 1
-void DRIVE_READY_Zero(void);//установить Ready в 0
+static void DRIVE_READY_One(void);//установить Ready в 1
+static void DRIVE_READY_Zero(void);//установить Ready в 0
 
-bool DRIVE_DIR_Get(void);//получить значение Dir
-bool DRIVE_SIDE1_Get(void);//получить значение Side1
-bool DRIVE_STEP_Get(void);//получить значение Step
+static bool DRIVE_DIR_Get(void);//получить значение Dir
+static bool DRIVE_SIDE1_Get(void);//получить значение Side1
+static bool DRIVE_STEP_Get(void);//получить значение Step
+
+static bool BUTTON_GetButtonUpState(void);//получить наличие нажатия на кнопку вверх
+static bool BUTTON_GetButtonDownState(void);//получить наличие нажатия на кнопку вниз
+static bool BUTTON_GetButtonSelectState(void);//получить наличие нажатия на кнопку выбор
+static bool BUTTON_GetButtonCenterState(void);//получить наличие нажатия на кнопку центр
 
 void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin);//обработчик внешнего прерывания
 
@@ -107,90 +125,13 @@ int main(void)
  iDisplay_Ptr->Init();
  cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);
 	
- FindSD();
-	
- if (f_open(&File,"Dizzy-6.MFM",FA_READ)!=FR_OK)
- {
-  cDisplayStandardLibrary.Print("Нет файла!",IDisplay::COLOR_BLACK);	 
-	while(1);
- }
- cDisplayStandardLibrary.Print("Файл открыт",IDisplay::COLOR_BLACK);	  
- 
- Update=true;
- Track=0;//номер трэка
- Side=0;//номер стороны  
- 
- DRIVE_CHDISK_One();
- DRIVE_READY_Zero(); 
- DRIVE_TRACK0_Zero();
- 
- static const size_t BLOCK_AMOUNT=12800/512;
-  
- struct SBlock
- {
-  uint8_t Track;
-  uint8_t Side;	 
- };
- 
- SBlock sBlock[BLOCK_AMOUNT];
- for(size_t n=0;n<BLOCK_AMOUNT;n++)
- {
-	sBlock[n].Track=0xff;
-  sBlock[n].Side=3;
- }
- uint8_t block=0;
- //запускаем вывод данных в SPI
- memset(TrackBuffer,0,TRACK_SIZE);
- HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
- size_t last_offset=0;
- while(1)
- {
-	__disable_irq();
-	bool update=Update;
-  Update=false;
-  uint8_t track=Track;
-  __enable_irq();
-  uint8_t side;	 
-  if (DRIVE_SIDE1_Get()==true) side=0;
-                          else side=1;
-	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
-	{
-	 //HAL_SPI_DMAStop(&hspi2);		
-	 HAL_SPI_DMAPause(&hspi2);
-	 sBlock[block].Side=side;
-   sBlock[block].Track=track;
-		
-   size_t track_offset=block*512;
-	 uint32_t offset=track;
-	 offset*=2;
-	 offset+=side;
-	 offset*=TRACK_SIZE;
-	 offset+=block*512;	
-	 if (last_offset!=offset) f_lseek(&File,offset);		
-	 last_offset=offset+512;
-	 UINT readen;
-   if (f_read(&File,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
-	 {
-	  cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);
-		while(1);
-	 }
-	 if (readen!=512)
-	 {
-	  cDisplayStandardLibrary.Print("Не считал",IDisplay::COLOR_BLACK);
-		while(1);
-	 }
-	 HAL_SPI_DMAResume(&hspi2);
-	}
-	
-	block++;
-	block%=BLOCK_AMOUNT;  
- }
- f_close(&File); 
+ FindSD();	
+ SelectFile(); 	
 }
 //----------------------------------------------------------------------------------------------------
 //инициализация тактового генератора
 //----------------------------------------------------------------------------------------------------
-void RCC_Init(void)
+static void RCC_Init(void)
 {
  RCC_OscInitTypeDef RCC_OscInitStruct;
  RCC_ClkInitTypeDef RCC_ClkInitStruct;
@@ -296,7 +237,19 @@ static void GPIO_Init(void)
 
  GPIO_InitStruct.Pin=DRIVE_OUTPUT_GPIO_PIN_SIDE1;
  HAL_GPIO_Init(DRIVE_OUTPUT_GPIO_SIDE1,&GPIO_InitStruct);
-
+ 
+ GPIO_InitStruct.Pin=BUTTON_OUTPUT_GPIO_PIN_UP;
+ HAL_GPIO_Init(BUTTON_OUTPUT_GPIO_UP,&GPIO_InitStruct);
+ 
+ GPIO_InitStruct.Pin=BUTTON_OUTPUT_GPIO_PIN_DOWN;
+ HAL_GPIO_Init(BUTTON_OUTPUT_GPIO_DOWN,&GPIO_InitStruct);
+ 
+ GPIO_InitStruct.Pin=BUTTON_OUTPUT_GPIO_PIN_CENTER;
+ HAL_GPIO_Init(BUTTON_OUTPUT_GPIO_CENTER,&GPIO_InitStruct);
+ 
+ GPIO_InitStruct.Pin=BUTTON_OUTPUT_GPIO_PIN_SELECT;
+ HAL_GPIO_Init(BUTTON_OUTPUT_GPIO_SELECT,&GPIO_InitStruct);
+ 
  //внешние прерывания
  GPIO_InitStruct.Mode=GPIO_MODE_IT_RISING;
  GPIO_InitStruct.Pull=GPIO_NOPULL;
@@ -311,49 +264,49 @@ static void GPIO_Init(void)
 //----------------------------------------------------------------------------------------------------
 //установить Index в 1
 //----------------------------------------------------------------------------------------------------
-void DRIVE_CHDISK_One(void)
+static void DRIVE_CHDISK_One(void)
 {
  HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_CHDISK,DRIVE_OUTPUT_GPIO_PIN_CHDISK,GPIO_PIN_SET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Index в 0
 //----------------------------------------------------------------------------------------------------
-void DRIVE_CHDISK_Zero(void)
+static void DRIVE_CHDISK_Zero(void)
 {
  HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_CHDISK,DRIVE_OUTPUT_GPIO_PIN_CHDISK,GPIO_PIN_RESET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Track0 в 1
 //----------------------------------------------------------------------------------------------------
-void DRIVE_TRACK0_One(void)
+static void DRIVE_TRACK0_One(void)
 {
  HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_TRACK0,DRIVE_OUTPUT_GPIO_PIN_TRACK0,GPIO_PIN_SET);	
 }
 //----------------------------------------------------------------------------------------------------
 //установить Track0 в 0
 //----------------------------------------------------------------------------------------------------
-void DRIVE_TRACK0_Zero(void)
+static void DRIVE_TRACK0_Zero(void)
 {
  HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_TRACK0,DRIVE_OUTPUT_GPIO_PIN_TRACK0,GPIO_PIN_RESET);
 }
 //----------------------------------------------------------------------------------------------------
 //установить Ready в 1
 //----------------------------------------------------------------------------------------------------
-void DRIVE_READY_One(void)
+static void DRIVE_READY_One(void)
 {
  HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_READY,DRIVE_OUTPUT_GPIO_PIN_READY,GPIO_PIN_SET);
 }
 //----------------------------------------------------------------------------------------------------
 //установить Ready в 0
 //----------------------------------------------------------------------------------------------------
-void DRIVE_READY_Zero(void)
+static void DRIVE_READY_Zero(void)
 {
  HAL_GPIO_WritePin(DRIVE_OUTPUT_GPIO_READY,DRIVE_OUTPUT_GPIO_PIN_READY,GPIO_PIN_RESET);
 }
 //----------------------------------------------------------------------------------------------------
 //получить значение Dir
 //----------------------------------------------------------------------------------------------------
-bool DRIVE_DIR_Get(void)
+static bool DRIVE_DIR_Get(void)
 {
  if (HAL_GPIO_ReadPin(DRIVE_OUTPUT_GPIO_DIR,DRIVE_OUTPUT_GPIO_PIN_DIR)==GPIO_PIN_SET) return(true);
  return(false);
@@ -361,7 +314,7 @@ bool DRIVE_DIR_Get(void)
 //----------------------------------------------------------------------------------------------------
 //получить значение Side1
 //----------------------------------------------------------------------------------------------------
-bool DRIVE_SIDE1_Get(void)
+static bool DRIVE_SIDE1_Get(void)
 {
  if (HAL_GPIO_ReadPin(DRIVE_OUTPUT_GPIO_SIDE1,DRIVE_OUTPUT_GPIO_PIN_SIDE1)==GPIO_PIN_SET) return(true);
  return(false);
@@ -369,11 +322,47 @@ bool DRIVE_SIDE1_Get(void)
 //----------------------------------------------------------------------------------------------------
 //получить значение Step
 //----------------------------------------------------------------------------------------------------
-bool DRIVE_STEP_Get(void)
+static bool DRIVE_STEP_Get(void)
 {
  if (HAL_GPIO_ReadPin(DRIVE_OUTPUT_GPIO_STEP,DRIVE_OUTPUT_GPIO_PIN_STEP)==GPIO_PIN_SET) return(true);
  return(false);
 }
+//----------------------------------------------------------------------------------------------------
+//получить наличие нажатия на кнопку вверх
+//----------------------------------------------------------------------------------------------------
+static bool BUTTON_GetButtonUpState(void)
+{
+ if (HAL_GPIO_ReadPin(BUTTON_OUTPUT_GPIO_UP,BUTTON_OUTPUT_GPIO_PIN_UP)==GPIO_PIN_SET) return(true);
+ return(false);
+}
+//----------------------------------------------------------------------------------------------------
+//получить наличие нажатия на кнопку вниз
+//----------------------------------------------------------------------------------------------------
+static bool BUTTON_GetButtonDownState(void)
+{
+ if (HAL_GPIO_ReadPin(BUTTON_OUTPUT_GPIO_DOWN,BUTTON_OUTPUT_GPIO_PIN_DOWN)==GPIO_PIN_SET) return(true);
+ return(false);
+}
+//----------------------------------------------------------------------------------------------------
+//получить наличие нажатия на кнопку выбор
+//----------------------------------------------------------------------------------------------------
+static bool BUTTON_GetButtonSelectState(void)
+{
+ if (HAL_GPIO_ReadPin(BUTTON_OUTPUT_GPIO_SELECT,BUTTON_OUTPUT_GPIO_PIN_SELECT)==GPIO_PIN_SET) return(true);
+ return(false);
+}
+//----------------------------------------------------------------------------------------------------
+//получить наличие нажатия на кнопку центр
+//----------------------------------------------------------------------------------------------------
+static bool BUTTON_GetButtonCenterState(void)
+{
+ //if (HAL_GPIO_ReadPin(BUTTON_OUTPUT_GPIO_CENTER,BUTTON_OUTPUT_GPIO_PIN_CENTER)==GPIO_PIN_SET) return(true);
+ if (BUTTON_OUTPUT_GPIO_CENTER->IDR&BUTTON_OUTPUT_GPIO_PIN_CENTER) return(true);
+ return(false);
+}
+
+
+
 
 //----------------------------------------------------------------------------------------------------
 //обработчик внешнего прерывания
@@ -400,7 +389,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 	 }
 	}
   if (Track==0) DRIVE_TRACK0_Zero();
-           else DRIVE_TRACK0_One(); } 
+           else DRIVE_TRACK0_One(); 
+ } 
  __enable_irq();
 }
 
@@ -446,36 +436,281 @@ DWORD get_fattime(void)
  ret|=(WORD)(wSecond>>1);
  return(ret);
 }
+//------------------------------------------------------------------------------------------
+//вывод файла
+//------------------------------------------------------------------------------------------
+static bool OutputFile(const char *filename,const char *short_name)
+{
+ cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);	
+ FIL file;
+ if (f_open(&file,filename,FA_READ)!=FR_OK)
+ {
+  cDisplayStandardLibrary.Print("Ошибка",IDisplay::COLOR_BLACK);
+  HAL_Delay(1000);
+	return(false);
+ }
+ 
+ cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*0,"Запущен",IDisplay::COLOR_BLACK); 
+ cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*1,"файл",IDisplay::COLOR_BLACK);
+ cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*2,short_name,IDisplay::COLOR_BLACK);
+
+ __disable_irq();
+ Update=true;
+ Track=0;//номер трэка
+ Side=0;//номер стороны  
+ __enable_irq();
+
+ DRIVE_CHDISK_Zero();
+ DRIVE_READY_One(); 
+ 
+ HAL_Delay(200);
+ 
+ DRIVE_CHDISK_One();
+ DRIVE_READY_Zero(); 
+ DRIVE_TRACK0_Zero();
+ 
+ static const size_t BLOCK_SIZE=512;
+ static const size_t BLOCK_AMOUNT=TRACK_SIZE/BLOCK_SIZE;
+  
+ struct SBlock
+ {
+  uint8_t Track;
+  uint8_t Side;	 
+ };
+ 
+ SBlock sBlock[BLOCK_AMOUNT];
+ for(size_t n=0;n<BLOCK_AMOUNT;n++)
+ {
+	sBlock[n].Track=0xff;
+  sBlock[n].Side=3;
+ }
+ uint8_t block=0;
+ //запускаем вывод данных в SPI
+ memset(TrackBuffer,0,TRACK_SIZE);
+ HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
+ size_t last_offset=0;
+ while(1)
+ {
+	//if (BUTTON_GetButtonCenterState()==true) break;
+	 
+	__disable_irq();
+	bool update=Update;
+  Update=false;
+  uint8_t track=Track;
+  __enable_irq();
+  uint8_t side;	 
+  if (DRIVE_SIDE1_Get()==true) side=0;
+                          else side=1;
+	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
+	{	 	
+	 HAL_SPI_DMAPause(&hspi2);
+	 sBlock[block].Side=side;
+   sBlock[block].Track=track;
+		
+   size_t track_offset=block*512;
+	 uint32_t offset=track;
+	 offset*=2;
+	 offset+=side;
+	 offset*=TRACK_SIZE;
+	 offset+=block*512;	
+	 if (last_offset!=offset) f_lseek(&file,offset);		
+	 last_offset=offset+512;
+	 UINT readen;
+   if (f_read(&file,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
+	 {
+    HAL_SPI_DMAStop(&hspi2);		 
+    f_close(&file);		 
+    cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"Сбой",IDisplay::COLOR_BLACK);
+		HAL_Delay(1000);
+		return(false);
+	 }
+	 if (readen!=512)
+	 {
+    HAL_SPI_DMAStop(&hspi2);		 
+    f_close(&file);
+    cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"Сбой",IDisplay::COLOR_BLACK);
+    HAL_Delay(1000);
+		return(false);
+	 }
+	 HAL_SPI_DMAResume(&hspi2);
+	}	
+	block++;
+	block%=BLOCK_AMOUNT;  
+ }
+ f_close(&file);
+ HAL_SPI_DMAStop(&hspi2);
+ return(true); 
+}
+
 
 //------------------------------------------------------------------------------------------
 //поиск и инициализация SD-карты
 //------------------------------------------------------------------------------------------
-void FindSD(void)
-{ 
- cDisplayStandardLibrary.Print("Инициализация SD-карты",IDisplay::COLOR_BLACK);
- SD_ANSWER sd_answer=SD_Init();
- if (sd_answer==SD_ANSWER_OK) cDisplayStandardLibrary.Print("SD:готова",IDisplay::COLOR_BLACK);
- if (sd_answer==SD_ANSWER_ERROR) cDisplayStandardLibrary.Print("SD:не готова",IDisplay::COLOR_BLACK);
- if (sd_answer==SD_ANSWER_SPI_ERROR) cDisplayStandardLibrary.Print("SD:настройка spi не удалась",IDisplay::COLOR_BLACK);
- if (sd_answer==SD_ANSWER_SPI_NOT_SUPPORTED)cDisplayStandardLibrary.Print("SD:spi не поддерживается",IDisplay::COLOR_BLACK);
- if (sd_answer==SD_ANSWER_NO_RESPONSE) cDisplayStandardLibrary.Print("SD:нет ответа от карты",IDisplay::COLOR_BLACK);
- if (sd_answer==SD_ANSWER_SIZE_ERROR) cDisplayStandardLibrary.Print("SD:ошибка получения размера",IDisplay::COLOR_BLACK);
+static void FindSD(void)
+{
+ cDisplayStandardLibrary.Print("Поиск SD",IDisplay::COLOR_BLACK);
+ SD_ANSWER sd_answer=SD_Init();	
+ if (sd_answer==SD_ANSWER_OK) cDisplayStandardLibrary.Print("SD готова",IDisplay::COLOR_BLACK);
+ if (sd_answer==SD_ANSWER_ERROR) cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);
+ if (sd_answer==SD_ANSWER_SPI_ERROR) cDisplayStandardLibrary.Print("Ошибка SPI",IDisplay::COLOR_BLACK);
+ if (sd_answer==SD_ANSWER_SPI_NOT_SUPPORTED)cDisplayStandardLibrary.Print("SPI	нет",IDisplay::COLOR_BLACK);
+ if (sd_answer==SD_ANSWER_NO_RESPONSE) cDisplayStandardLibrary.Print("Нет ответа",IDisplay::COLOR_BLACK);
+ if (sd_answer==SD_ANSWER_SIZE_ERROR) cDisplayStandardLibrary.Print("Размер ?",IDisplay::COLOR_BLACK);
  if (sd_answer!=SD_ANSWER_OK) 
  {
   while(1);	 
  }
-	
+}
+//------------------------------------------------------------------------------------------
+//выбор файла
+//------------------------------------------------------------------------------------------
+static void SelectFile(void)
+{
+ cDisplayStandardLibrary.Print("Поиск ФС",IDisplay::COLOR_BLACK);
  FRESULT res; 
  res=f_mount(&FatFS,"",1);
- if (res==FR_INVALID_DRIVE) cDisplayStandardLibrary.Print("FR_INVALID_DRIVE",IDisplay::COLOR_BLACK);
- if (res==FR_DISK_ERR) cDisplayStandardLibrary.Print("FR_DISK_ERR",IDisplay::COLOR_BLACK);
- if (res==FR_NOT_READY) cDisplayStandardLibrary.Print("FR_NOT_READY",IDisplay::COLOR_BLACK);
- if (res==FR_NO_FILESYSTEM) cDisplayStandardLibrary.Print("FR_NO_FILESYSTEM",IDisplay::COLOR_BLACK);
+ if (res==FR_INVALID_DRIVE) cDisplayStandardLibrary.Print("Нет SD",IDisplay::COLOR_BLACK);
+ if (res==FR_DISK_ERR) cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);
+ if (res==FR_NOT_READY) cDisplayStandardLibrary.Print("Не готова",IDisplay::COLOR_BLACK);
+ if (res==FR_NO_FILESYSTEM) cDisplayStandardLibrary.Print("Нет ФС",IDisplay::COLOR_BLACK);
  if (res!=FR_OK) 
  {
   while(1);	 
  }
- cDisplayStandardLibrary.Print("Файловая система найдена",IDisplay::COLOR_BLACK);	
+ cDisplayStandardLibrary.Print("ФС найдена",IDisplay::COLOR_BLACK);	 
+ HAL_Delay(1000); 
+ PathMenu("/");
 }
 
+static char Path[MAX_PATH];
 
+//------------------------------------------------------------------------------------------
+//вывод меню выбора файла
+//------------------------------------------------------------------------------------------
+void PathMenu(const char *path)
+{
+ size_t level=0;//уровень вложенности	
+ //переходим к первому имени файла на карте
+ FILINFO fileInfo;
+ FRESULT res;
+ static DIR dir[MAX_LEVEL];//открытая директория на уровне
+ static size_t index[MAX_LEVEL];//номер файла на уровне
+ static size_t length_path_name[MAX_LEVEL];//размер имени по уровням
+ index[level]=0;//номер выбранного файла	
+ res=f_opendir(&dir[level],Path);
+ if (res!=FR_OK) return;//нет файлов
+ sprintf(Path,"%s",path);
+ length_path_name[level]=strlen(Path); 	
+ while(1)
+ {
+  DIR current_dir=dir[level];	 
+  //выводим данные с SD-карты (верхний элемент всегда равен целому от index/5)
+  uint8_t offset=(uint8_t)((index[level]%5UL));
+  //отматываем до верхнего элемента (index-offset)
+  for(uint8_t n=0;n<index[level]-offset;n++)
+	{
+   res=f_readdir(&current_dir,&fileInfo);
+   if (res!=FR_OK) break;
+	 if (fileInfo.fname[0]==0) break;
+	}
+  //выводим, начиная с верхнего элемента
+	cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);
+  uint8_t counter=0;
+  for(uint8_t n=0;n<5;n++,counter++)
+  {
+   res=f_readdir(&current_dir,&fileInfo);
+   if (res!=FR_OK) break;
+	 if (fileInfo.fname[0]==0) break;
+   //читаем имя файла 
+   if (n==offset)
+	 {
+    for(size_t m=0;m<11;m++) cDisplayStandardLibrary.ClearSymbol(CDisplayStandardLibrary::FONT_WIDTH*m,CDisplayStandardLibrary::FONT_HEIGHT*n,IDisplay::COLOR_BLACK);
+		cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*n,fileInfo.fname,IDisplay::COLOR_WHITE);//выбранный файл
+	 }
+	 else cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*n,fileInfo.fname,IDisplay::COLOR_BLACK);
+  }
+  HAL_Delay(100);
+  //ждём нажатий кнопок
+  while(1)
+  {
+ 	 if (BUTTON_GetButtonUpState()==true)	
+ 	 {
+    if (index[level]>0)
+	  {
+	   index[level]--;
+		 break;
+	  }
+	 }	 
+   if (BUTTON_GetButtonDownState()==true)	
+   {
+    //пробуем перейти к следующему файлу		 
+    current_dir=dir[level];		 
+		size_t n;
+    for(n=0;n<=index[level]+1;n++)
+	  {
+     res=f_readdir(&current_dir,&fileInfo);
+     if (res!=FR_OK) break;
+	   if (fileInfo.fname[0]==0) break;
+		}		
+		if (n==index[level]+2) index[level]++;
+	  break;
+	 }
+   if (BUTTON_GetButtonSelectState()==true)	
+   {		 
+    //отматываем до выбранного элемента
+    current_dir=dir[level];		 
+		size_t n;
+    for(n=0;n<=index[level];n++)
+	  {
+     res=f_readdir(&current_dir,&fileInfo);
+     if (res!=FR_OK) break;
+	   if (fileInfo.fname[0]==0) break;
+		}		
+		if (n==index[level]+1)
+		{
+		 if ((fileInfo.fattrib&AM_DIR)==AM_DIR)
+		 {
+			if (level+1<MAX_LEVEL)
+			{
+			 if (length_path_name[level]+strlen(fileInfo.fname)+2<MAX_PATH)
+			 {
+			  if (level==0) sprintf(Path+length_path_name[level],"%s",fileInfo.fname);
+                 else sprintf(Path+length_path_name[level],"/%s",fileInfo.fname);
+ 			  level++;
+			  length_path_name[level]=strlen(Path);
+			  res=f_opendir(&dir[level],Path);
+			  index[level]=0;
+				HAL_Delay(300);
+			 }
+			}
+		 }
+		 else
+		 {
+			if (length_path_name[level]+strlen(fileInfo.fname)+2<MAX_PATH)
+			{				
+ 			 if (level==0) sprintf(Path+length_path_name[level],"%s",fileInfo.fname);
+                else sprintf(Path+length_path_name[level],"/%s",fileInfo.fname);
+			 HAL_Delay(100); 
+		   OutputFile(Path,fileInfo.fname);
+			 HAL_Delay(500);
+			 Path[length_path_name[level]]=0;//возвращаем обратно позицию директории			 
+			}
+		 }
+	  }
+		break;
+	 }
+   if (BUTTON_GetButtonCenterState()==true)	
+	 {
+		if (level>0)
+		{
+		 level--;	
+     Path[length_path_name[level]]=0;//возвращаем обратно позицию директории			 			
+     HAL_Delay(300);
+		 break;
+		}	 
+	 }
+	 
+  }
+ }
+ //f_closedir(&dir);
+}
