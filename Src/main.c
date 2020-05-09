@@ -66,9 +66,7 @@ CDisplayNokia5110 cDisplay;//дисплей
 IDisplay *iDisplay_Ptr=&cDisplay;//указатель на дисплей
 CDisplayStandardLibrary cDisplayStandardLibrary(iDisplay_Ptr,true);//стандартная библиотека дисплея
 
-volatile bool Update=true;//требуется ли обновление данных дорожки
 volatile uint8_t Track=0;//номер трэка
-volatile uint8_t Side=0;//номер стороны
 
 static uint8_t TrackBuffer[TRACK_SIZE];//буфер дорожки
 static FATFS FatFS;//файловая система
@@ -143,7 +141,6 @@ static void RCC_Init(void)
  RCC_OscInitStruct.PLL.PLLState=RCC_PLL_ON;
  RCC_OscInitStruct.PLL.PLLSource=RCC_PLLSOURCE_HSE;
  RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL9;
- //RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL9;	
  if (HAL_RCC_OscConfig(&RCC_OscInitStruct)!=HAL_OK)
  {
   _Error_Handler(__FILE__,__LINE__);
@@ -316,7 +313,8 @@ static bool DRIVE_DIR_Get(void)
 //----------------------------------------------------------------------------------------------------
 static bool DRIVE_SIDE1_Get(void)
 {
- if (HAL_GPIO_ReadPin(DRIVE_OUTPUT_GPIO_SIDE1,DRIVE_OUTPUT_GPIO_PIN_SIDE1)==GPIO_PIN_SET) return(true);
+ //if (HAL_GPIO_ReadPin(DRIVE_OUTPUT_GPIO_SIDE1,DRIVE_OUTPUT_GPIO_PIN_SIDE1)==GPIO_PIN_SET) return(true);
+ if (DRIVE_OUTPUT_GPIO_SIDE1->IDR&DRIVE_OUTPUT_GPIO_PIN_SIDE1) return(true);
  return(false);
 }
 //----------------------------------------------------------------------------------------------------
@@ -369,7 +367,6 @@ static bool BUTTON_GetButtonCenterState(void)
 //----------------------------------------------------------------------------------------------------
 void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 {
- __disable_irq();	
  if (gpio_pin==DRIVE_OUTPUT_GPIO_PIN_STEP) 
  {
   if (DRIVE_DIR_Get()==false)
@@ -377,7 +374,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
    if (Track<MAX_TRACK)
 	 {
 		Track++;
-		Update=true;
 	 }
 	}
 	else
@@ -385,13 +381,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 	 if (Track>0)
 	 {
 		Track--;
-		Update=true;
 	 }
 	}
   if (Track==0) DRIVE_TRACK0_Zero();
            else DRIVE_TRACK0_One(); 
  } 
- __enable_irq();
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -455,9 +449,7 @@ static bool OutputFile(const char *filename,const char *short_name)
  cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*2,short_name,IDisplay::COLOR_BLACK);
 
  __disable_irq();
- Update=true;
  Track=0;//номер трэка
- Side=0;//номер стороны  
  __enable_irq();
 
  DRIVE_CHDISK_Zero();
@@ -478,7 +470,7 @@ static bool OutputFile(const char *filename,const char *short_name)
   uint8_t Side;	 
  };
  
- SBlock sBlock[BLOCK_AMOUNT];
+ static SBlock sBlock[BLOCK_AMOUNT];
  for(size_t n=0;n<BLOCK_AMOUNT;n++)
  {
 	sBlock[n].Track=0xff;
@@ -491,11 +483,8 @@ static bool OutputFile(const char *filename,const char *short_name)
  size_t last_offset=0;
  while(1)
  {
-	//if (BUTTON_GetButtonCenterState()==true) break;
-	 
+	if (BUTTON_GetButtonCenterState()==true) break;	 
 	__disable_irq();
-	bool update=Update;
-  Update=false;
   uint8_t track=Track;
   __enable_irq();
   uint8_t side;	 
@@ -503,7 +492,6 @@ static bool OutputFile(const char *filename,const char *short_name)
                           else side=1;
 	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
 	{	 	
-	 HAL_SPI_DMAPause(&hspi2);
 	 sBlock[block].Side=side;
    sBlock[block].Track=track;
 		
@@ -512,7 +500,7 @@ static bool OutputFile(const char *filename,const char *short_name)
 	 offset*=2;
 	 offset+=side;
 	 offset*=TRACK_SIZE;
-	 offset+=block*512;	
+	 offset+=block*512;
 	 if (last_offset!=offset) f_lseek(&file,offset);		
 	 last_offset=offset+512;
 	 UINT readen;
@@ -531,11 +519,10 @@ static bool OutputFile(const char *filename,const char *short_name)
     cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"Сбой",IDisplay::COLOR_BLACK);
     HAL_Delay(1000);
 		return(false);
-	 }
-	 HAL_SPI_DMAResume(&hspi2);
-	}	
+	 }	 
+	}
 	block++;
-	block%=BLOCK_AMOUNT;  
+	block%=BLOCK_AMOUNT;
  }
  f_close(&file);
  HAL_SPI_DMAStop(&hspi2);
@@ -658,7 +645,7 @@ void PathMenu(const char *path)
    if (BUTTON_GetButtonSelectState()==true)	
    {		 
     //отматываем до выбранного элемента
-    current_dir=dir[level];		 
+    current_dir=dir[level];
 		size_t n;
     for(n=0;n<=index[level];n++)
 	  {
