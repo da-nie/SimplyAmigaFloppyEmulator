@@ -94,8 +94,16 @@ uint16_t GetBits(uint8_t *data,uint8_t begin,uint8_t end)
 static inline uint8_t SD_TransmitData(uint8_t data)
 { 	
  uint8_t res; 	
+ while(!(READ_BIT(SPI1->SR,SPI_SR_TXE)==(SPI_SR_TXE)));
+ WRITE_REG(SPI1->DR,data);
+ while(!(READ_BIT(SPI1->SR,SPI_SR_RXNE)==(SPI_SR_RXNE)));
+ res=READ_REG(SPI1->DR);
+ return(res);
+	/*
+ uint8_t res; 	
  HAL_SPI_TransmitReceive(&hspi,&data,&res,sizeof(uint8_t),0x1000);	
  return(res);
+	 */
 }
 
 //----------------------------------------------------------------------------------------------------
@@ -141,13 +149,15 @@ SD_ANSWER SD_Init(void)
  hspi.Init.CLKPolarity=SPI_POLARITY_LOW;
  hspi.Init.CLKPhase=SPI_PHASE_1EDGE;
  hspi.Init.NSS=SPI_NSS_SOFT;
- hspi.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_2;
+ hspi.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_4;
  hspi.Init.FirstBit=SPI_FIRSTBIT_MSB;
  hspi.Init.TIMode=SPI_TIMODE_DISABLE;
  hspi.Init.CRCCalculation=SPI_CRCCALCULATION_DISABLE;
  hspi.Init.CRCPolynomial=10;
  if (HAL_SPI_Init(&hspi)!=HAL_OK) return(SD_ANSWER_SPI_ERROR); 
 
+ SET_BIT(SPI1->CR1,SPI_CR1_SPE);
+ 
  //инициализируем карту		
  //шлём не менее 74 импульсов синхронизации при высоком уровне на CS и DI 
  SD_CS_Zero();

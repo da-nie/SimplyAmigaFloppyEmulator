@@ -70,7 +70,7 @@ volatile uint8_t Track=0;//номер трэка
 
 static uint8_t TrackBuffer[TRACK_SIZE];//буфер дорожки
 static FATFS FatFS;//файловая система
-
+static char Path[MAX_PATH];//путь к файлу или к каталогам
 
 //****************************************************************************************************
 //прототипы функций
@@ -124,6 +124,7 @@ int main(void)
  cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);
 	
  FindSD();	
+
  SelectFile(); 	
 }
 //----------------------------------------------------------------------------------------------------
@@ -455,7 +456,7 @@ static bool OutputFile(const char *filename,const char *short_name)
  DRIVE_CHDISK_Zero();
  DRIVE_READY_One(); 
  
- HAL_Delay(200);
+ HAL_Delay(1000);
  
  DRIVE_CHDISK_One();
  DRIVE_READY_Zero(); 
@@ -480,6 +481,7 @@ static bool OutputFile(const char *filename,const char *short_name)
  //запускаем вывод данных в SPI
  memset(TrackBuffer,0,TRACK_SIZE);
  HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
+ HAL_SPI_DMAPause(&hspi2);
  size_t last_offset=0;
  while(1)
  {
@@ -492,6 +494,8 @@ static bool OutputFile(const char *filename,const char *short_name)
                           else side=1;
 	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуется обновление данных
 	{	 	
+   HAL_SPI_DMAPause(&hspi2);
+		
 	 sBlock[block].Side=side;
    sBlock[block].Track=track;
 		
@@ -501,7 +505,7 @@ static bool OutputFile(const char *filename,const char *short_name)
 	 offset+=side;
 	 offset*=TRACK_SIZE;
 	 offset+=block*512;
-	 if (last_offset!=offset) f_lseek(&file,offset);		
+	 if (last_offset!=offset) f_lseek(&file,offset);
 	 last_offset=offset+512;
 	 UINT readen;
    if (f_read(&file,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
@@ -509,7 +513,7 @@ static bool OutputFile(const char *filename,const char *short_name)
     HAL_SPI_DMAStop(&hspi2);		 
     f_close(&file);		 
     cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"Сбой",IDisplay::COLOR_BLACK);
-		HAL_Delay(1000);
+		HAL_Delay(5000);
 		return(false);
 	 }
 	 if (readen!=512)
@@ -517,9 +521,17 @@ static bool OutputFile(const char *filename,const char *short_name)
     HAL_SPI_DMAStop(&hspi2);		 
     f_close(&file);
     cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"Сбой",IDisplay::COLOR_BLACK);
-    HAL_Delay(1000);
+    HAL_Delay(5000);
 		return(false);
-	 }	 
+	 }	
+	 size_t counter=0;
+   for(size_t n=0;n<BLOCK_AMOUNT;n++)
+   {
+    if ((sBlock[n].Side!=side) || (sBlock[n].Track!=track)) counter++;
+   }
+	 if (counter!=0) HAL_SPI_DMAPause(&hspi2);
+	            else HAL_SPI_DMAResume(&hspi2);
+	 
 	}
 	block++;
 	block%=BLOCK_AMOUNT;
@@ -560,17 +572,34 @@ static void SelectFile(void)
  if (res==FR_DISK_ERR) cDisplayStandardLibrary.Print("Ошибка SD",IDisplay::COLOR_BLACK);
  if (res==FR_NOT_READY) cDisplayStandardLibrary.Print("Не готова",IDisplay::COLOR_BLACK);
  if (res==FR_NO_FILESYSTEM) cDisplayStandardLibrary.Print("Нет ФС",IDisplay::COLOR_BLACK);
- if (res!=FR_OK) 
+ if (res!=FR_OK)
  {
   while(1);	 
  }
  cDisplayStandardLibrary.Print("ФС найдена",IDisplay::COLOR_BLACK);	 
  HAL_Delay(1000); 
+ 
+ FIL file;
+ if (f_open(&file,"Test.MFM",FA_READ)==FR_OK)
+ {
+  cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);
+  UINT readen;
+  for(size_t n=0;n<5;n++)
+  {
+   size_t begin=HAL_GetTick(); 
+   f_lseek(&file,n*12800*30);
+   f_read(&file,TrackBuffer,sizeof(uint8_t)*TRACK_SIZE,&readen);
+   size_t time=HAL_GetTick()-begin;
+   char str[25];
+   sprintf(str,"%i мс",time);
+   cDisplayStandardLibrary.Print(str,IDisplay::COLOR_BLACK);
+  }
+  f_close(&file); 
+	while(1);
+ }
+ 
  PathMenu("/");
 }
-
-static char Path[MAX_PATH];
-
 //------------------------------------------------------------------------------------------
 //вывод меню выбора файла
 //------------------------------------------------------------------------------------------
