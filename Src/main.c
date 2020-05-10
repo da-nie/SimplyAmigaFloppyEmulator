@@ -459,7 +459,7 @@ static bool OutputFile(const char *filename,const char *short_name)
  DRIVE_READY_Zero(); 
  DRIVE_TRACK0_Zero();
  
- static const size_t BLOCK_SIZE=128;
+ static const size_t BLOCK_SIZE=512;
  static const size_t BLOCK_AMOUNT=TRACK_SIZE/BLOCK_SIZE;
   
  struct SBlock
@@ -629,24 +629,56 @@ void PathMenu(const char *path)
 	}
   //выводим, начиная с верхнего элемента
 	cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);
-  uint8_t counter=0;
-  for(uint8_t n=0;n<5;n++,counter++)
+	uint8_t selected_pos=0;//позиция выбранного файла
+  for(uint8_t n=0;n<5;n++)
   {
    res=f_readdir(&current_dir,&fileInfo);
    if (res!=FR_OK) break;
 	 if (fileInfo.fname[0]==0) break;
    //читаем имя файла 
-   if (n==offset)
-	 {
-    for(size_t m=0;m<11;m++) cDisplayStandardLibrary.ClearSymbol(CDisplayStandardLibrary::FONT_WIDTH*m,CDisplayStandardLibrary::FONT_HEIGHT*n,IDisplay::COLOR_BLACK);
-		cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*n,fileInfo.fname,IDisplay::COLOR_WHITE);//выбранный файл
-	 }
-	 else cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*n,fileInfo.fname,IDisplay::COLOR_BLACK);
+   if (n==offset) selected_pos=n;
+             else cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*n,fileInfo.fname,IDisplay::COLOR_BLACK);
   }
+	//переходим к выбранному файлу
+	current_dir=dir[level];  
+	size_t n;
+  for(n=0;n<=index[level];n++)
+	{
+   res=f_readdir(&current_dir,&fileInfo);
+   if (res!=FR_OK) break;
+	 if (fileInfo.fname[0]==0) break;
+	}
+	if (n!=index[level]+1) continue;//какая-тоошибка
+	
+  size_t file_name_lenght=strlen(fileInfo.fname);
+	file_name_lenght++;//разделитель
   HAL_Delay(100);
-  //ждём нажатий кнопок
+  //ждём нажатий кнопок и выводим имя выбранного файла	
+	int32_t pos=0;
+	uint8_t tick=0;
   while(1)
   {
+   if (tick==0)
+	 {
+	  pos++;
+    if (pos>=file_name_lenght*CDisplayStandardLibrary::FONT_WIDTH) pos-=file_name_lenght*CDisplayStandardLibrary::FONT_WIDTH;
+	  //стираем строчку	
+    for(size_t m=0;m<11;m++) cDisplayStandardLibrary.ClearSymbol(CDisplayStandardLibrary::FONT_WIDTH*m,CDisplayStandardLibrary::FONT_HEIGHT*selected_pos,IDisplay::COLOR_BLACK);	 
+	  int32_t screen_pos=-(pos%CDisplayStandardLibrary::FONT_WIDTH);
+	  for(int32_t m=0;m<12;m++,screen_pos+=CDisplayStandardLibrary::FONT_WIDTH)
+    {
+	 	 int32_t left=pos;
+	 	 int32_t left_symbol=left/CDisplayStandardLibrary::FONT_WIDTH;
+		 int32_t symbol=left_symbol+m; 
+		 symbol%=file_name_lenght;
+		 char s=' ';
+		 if (symbol<file_name_lenght-1) s=fileInfo.fname[symbol];
+		 cDisplayStandardLibrary.PutSymbol(screen_pos,CDisplayStandardLibrary::FONT_HEIGHT*selected_pos,s,IDisplay::COLOR_WHITE);//выбранный файл
+	  }
+	 }
+	 tick++;
+   tick%=10;	 
+   HAL_Delay(10);		
  	 if (BUTTON_GetButtonUpState()==true)	
  	 {
     if (index[level]>0)
@@ -671,46 +703,34 @@ void PathMenu(const char *path)
 	 }
    if (BUTTON_GetButtonSelectState()==true)	
    {		 
-    //отматываем до выбранного элемента
-    current_dir=dir[level];
-		size_t n;
-    for(n=0;n<=index[level];n++)
-	  {
-     res=f_readdir(&current_dir,&fileInfo);
-     if (res!=FR_OK) break;
-	   if (fileInfo.fname[0]==0) break;
-		}		
-		if (n==index[level]+1)
+    if ((fileInfo.fattrib&AM_DIR)==AM_DIR)
 		{
-		 if ((fileInfo.fattrib&AM_DIR)==AM_DIR)
-		 {
-			if (level+1<MAX_LEVEL)
-			{
-			 if (length_path_name[level]+strlen(fileInfo.fname)+2<MAX_PATH)
-			 {
-			  if (level==0) sprintf(Path+length_path_name[level],"%s",fileInfo.fname);
-                 else sprintf(Path+length_path_name[level],"/%s",fileInfo.fname);
- 			  level++;
-			  length_path_name[level]=strlen(Path);
-			  res=f_opendir(&dir[level],Path);
-			  index[level]=0;
-				HAL_Delay(300);
-			 }
-			}
-		 }
-		 else
+		 if (level+1<MAX_LEVEL)
 		 {
 			if (length_path_name[level]+strlen(fileInfo.fname)+2<MAX_PATH)
-			{				
- 			 if (level==0) sprintf(Path+length_path_name[level],"%s",fileInfo.fname);
+			{
+			 if (level==0) sprintf(Path+length_path_name[level],"%s",fileInfo.fname);
                 else sprintf(Path+length_path_name[level],"/%s",fileInfo.fname);
-			 HAL_Delay(100); 
-		   OutputFile(Path,fileInfo.fname);
-			 HAL_Delay(500);
-			 Path[length_path_name[level]]=0;//возвращаем обратно позицию директории			 
+ 			 level++;
+			 length_path_name[level]=strlen(Path);
+			 res=f_opendir(&dir[level],Path);
+			 index[level]=0;
+			 HAL_Delay(300);
 			}
 		 }
-	  }
+		}
+		else
+		{
+		 if (length_path_name[level]+strlen(fileInfo.fname)+2<MAX_PATH)
+		 {				
+ 			if (level==0) sprintf(Path+length_path_name[level],"%s",fileInfo.fname);
+               else sprintf(Path+length_path_name[level],"/%s",fileInfo.fname);
+			HAL_Delay(100); 
+		  OutputFile(Path,fileInfo.fname);
+			HAL_Delay(500);
+			Path[length_path_name[level]]=0;//возвращаем обратно позицию директории			 
+		 }
+	  }	 
 		break;
 	 }
    if (BUTTON_GetButtonCenterState()==true)	
