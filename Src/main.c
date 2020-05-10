@@ -52,8 +52,8 @@
 
 static const size_t MAX_TRACK=79;//максимальный номер дорожки
 static const size_t TRACK_SIZE=12800;//размер дорожки
-static const size_t MAX_LEVEL=10;//максимальный уровень вложенности директорий
-static const size_t MAX_PATH=255;//максимальный путь
+static const size_t MAX_LEVEL=5;//максимальный уровень вложенности директорий
+static const size_t MAX_PATH=127;//максимальный путь
 
 //****************************************************************************************************
 //глобальные переменные
@@ -141,7 +141,7 @@ static void RCC_Init(void)
  RCC_OscInitStruct.HSIState=RCC_HSI_ON;
  RCC_OscInitStruct.PLL.PLLState=RCC_PLL_ON;
  RCC_OscInitStruct.PLL.PLLSource=RCC_PLLSOURCE_HSE;
- RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL9;
+ RCC_OscInitStruct.PLL.PLLMUL=RCC_PLL_MUL16;
  if (HAL_RCC_OscConfig(&RCC_OscInitStruct)!=HAL_OK)
  {
   _Error_Handler(__FILE__,__LINE__);
@@ -174,7 +174,7 @@ static void SPI2_Init(void)
  hspi2.Init.CLKPolarity=SPI_POLARITY_LOW;
  hspi2.Init.CLKPhase=SPI_PHASE_1EDGE;
  hspi2.Init.NSS=SPI_NSS_SOFT;
- hspi2.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_64;
+ hspi2.Init.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_128;
  hspi2.Init.FirstBit=SPI_FIRSTBIT_MSB;
  hspi2.Init.TIMode=SPI_TIMODE_DISABLE;
  hspi2.Init.CRCCalculation=SPI_CRCCALCULATION_DISABLE;
@@ -360,9 +360,6 @@ static bool BUTTON_GetButtonCenterState(void)
  return(false);
 }
 
-
-
-
 //----------------------------------------------------------------------------------------------------
 //обработчик внешнего прерывани€
 //----------------------------------------------------------------------------------------------------
@@ -462,7 +459,7 @@ static bool OutputFile(const char *filename,const char *short_name)
  DRIVE_READY_Zero(); 
  DRIVE_TRACK0_Zero();
  
- static const size_t BLOCK_SIZE=512;
+ static const size_t BLOCK_SIZE=128;
  static const size_t BLOCK_AMOUNT=TRACK_SIZE/BLOCK_SIZE;
   
  struct SBlock
@@ -481,7 +478,7 @@ static bool OutputFile(const char *filename,const char *short_name)
  //запускаем вывод данных в SPI
  memset(TrackBuffer,0,TRACK_SIZE);
  HAL_SPI_Transmit_DMA(&hspi2,TrackBuffer,TRACK_SIZE);	
- HAL_SPI_DMAPause(&hspi2);
+ //HAL_SPI_DMAPause(&hspi2);
  size_t last_offset=0;
  while(1)
  {
@@ -494,33 +491,34 @@ static bool OutputFile(const char *filename,const char *short_name)
                           else side=1;
 	if (sBlock[block].Side!=side || sBlock[block].Track!=track)//требуетс€ обновление данных
 	{	 	
-   HAL_SPI_DMAPause(&hspi2);
+  // HAL_SPI_DMAPause(&hspi2);
 		
 	 sBlock[block].Side=side;
    sBlock[block].Track=track;
 		
-   size_t track_offset=block*512;
+   size_t track_offset=block;
+	 track_offset*=BLOCK_SIZE;
 	 uint32_t offset=track;
 	 offset*=2;
 	 offset+=side;
 	 offset*=TRACK_SIZE;
-	 offset+=block*512;
+	 offset+=block*BLOCK_SIZE;
 	 if (last_offset!=offset) f_lseek(&file,offset);
-	 last_offset=offset+512;
+	 last_offset=offset+BLOCK_SIZE;
 	 UINT readen;
-   if (f_read(&file,TrackBuffer+track_offset,sizeof(uint8_t)*512,&readen)!=FR_OK)
+   if (f_read(&file,TrackBuffer+track_offset,sizeof(uint8_t)*BLOCK_SIZE,&readen)!=FR_OK)
 	 {
     HAL_SPI_DMAStop(&hspi2);		 
     f_close(&file);		 
-    cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"—бой",IDisplay::COLOR_BLACK);
+    cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"—бой 1",IDisplay::COLOR_BLACK);
 		HAL_Delay(5000);
 		return(false);
 	 }
-	 if (readen!=512)
+	 if (readen!=BLOCK_SIZE)
 	 {
     HAL_SPI_DMAStop(&hspi2);		 
     f_close(&file);
-    cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"—бой",IDisplay::COLOR_BLACK);
+    cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*5,"—бой 2",IDisplay::COLOR_BLACK);
     HAL_Delay(5000);
 		return(false);
 	 }	
@@ -529,8 +527,8 @@ static bool OutputFile(const char *filename,const char *short_name)
    {
     if ((sBlock[n].Side!=side) || (sBlock[n].Track!=track)) counter++;
    }
-	 if (counter!=0) HAL_SPI_DMAPause(&hspi2);
-	            else HAL_SPI_DMAResume(&hspi2);
+	 //if (counter!=0) HAL_SPI_DMAPause(&hspi2);
+	   //         else HAL_SPI_DMAResume(&hspi2);
 	 
 	}
 	block++;

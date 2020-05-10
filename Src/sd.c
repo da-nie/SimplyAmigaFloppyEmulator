@@ -65,11 +65,39 @@ uint16_t BlockByteCounter=512;//считанный байт блока
 SD_TYPE SDType=SD_TYPE_NONE;//тип карты памяти
 static SPI_HandleTypeDef hspi;//SPI
 
+DMA_HandleTypeDef hdma_spi1_tx;
+DMA_HandleTypeDef hdma_spi1_rx;
+
+volatile bool DMA_Done=false;
 //----------------------------------------------------------------------------------------------------
 //прототипы функций
 //----------------------------------------------------------------------------------------------------
 static inline uint8_t SD_TransmitData(uint8_t data);//послать данные SD-карте и принять ответ
 uint16_t inline GetBits(uint8_t *data,uint8_t begin,uint8_t end);//получить биты с begin по end включительно
+
+static void stm32_dma_transfer(uint8_t *buff_in,uint8_t *buff_out,size_t buff_size)
+{ 
+ DMA_Done=false;
+ HAL_SPI_TransmitReceive_DMA(&hspi,buff_out,buff_in,buff_size);
+ while(DMA_Done==false)
+ {
+  __NOP();
+ } 
+}
+
+//----------------------------------------------------------------------------------------------------
+//обработчик завершения передачи от DMA
+//----------------------------------------------------------------------------------------------------
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi_in)
+{
+ if(hspi_in==&hspi)
+ {
+  if(hspi.TxXferCount==0)
+  {
+   DMA_Done=true;
+  }
+ }
+}
 
 //----------------------------------------------------------------------------------------------------
 //получить биты с begin по end включительно
@@ -92,13 +120,14 @@ uint16_t GetBits(uint8_t *data,uint8_t begin,uint8_t end)
 //послать данные SD-карте и принять ответ
 //----------------------------------------------------------------------------------------------------
 static inline uint8_t SD_TransmitData(uint8_t data)
-{ 	
+{	
  uint8_t res; 	
  while(!(READ_BIT(SPI1->SR,SPI_SR_TXE)==(SPI_SR_TXE)));
  WRITE_REG(SPI1->DR,data);
  while(!(READ_BIT(SPI1->SR,SPI_SR_RXNE)==(SPI_SR_RXNE)));
  res=READ_REG(SPI1->DR);
  return(res);
+	
 	/*
  uint8_t res; 	
  HAL_SPI_TransmitReceive(&hspi,&data,&res,sizeof(uint8_t),0x1000);	
@@ -140,7 +169,15 @@ SD_ANSWER SD_Init(void)
  SD_GPIO_Init.Pin=SD_INPUT_GPIO_PIN_DO;
  HAL_GPIO_Init(SD_INPUT_GPIO_DO,&SD_GPIO_Init);	
  */
-
+ __HAL_RCC_DMA1_CLK_ENABLE();
+ 
+ /* DMA1_Channel2_IRQn interrupt configuration */
+ HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+ HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+ /* DMA1_Channel3_IRQn interrupt configuration */
+ HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
+ HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+ 
  //настраиваем SPI 	
  hspi.Instance=SPI1;
  hspi.Init.Mode=SPI_MODE_MASTER;
@@ -157,7 +194,7 @@ SD_ANSWER SD_Init(void)
  if (HAL_SPI_Init(&hspi)!=HAL_OK) return(SD_ANSWER_SPI_ERROR); 
 
  SET_BIT(SPI1->CR1,SPI_CR1_SPE);
- 
+  
  //инициализируем карту		
  //шлём не менее 74 импульсов синхронизации при высоком уровне на CS и DI 
  SD_CS_Zero();
@@ -165,9 +202,9 @@ SD_ANSWER SD_Init(void)
  HAL_Delay(1000);//пауза, пока карта не включится
  SD_CS_One();
  uint16_t n;
- for(n=0;n<250;n++)
+ for(n=0;n<10;n++)
  {
-  SD_TransmitData(255);
+  SD_TransmitData(0xff);
   HAL_Delay(1);
  }
  SD_CS_Zero();
@@ -440,10 +477,14 @@ bool SD_ReadBlock(uint32_t BlockAddr,uint8_t *Addr)
   //HAL_Delay(1);
  }
  if (n==65535) return(false);//маркер начала данных не получен
+ for(size_t n=0;n<512;n++) Addr[n]=0xff;
+ stm32_dma_transfer(Addr,Addr,512);
+ /*
  for(n=0;n<512;n++,Addr++)
  {
   *Addr=SD_TransmitData(0xff);//читаем байт с SD-карты
  }
+ */
  //считываем CRC
  SD_TransmitData(0xff);
  SD_TransmitData(0xff); 
