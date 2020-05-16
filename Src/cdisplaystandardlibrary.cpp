@@ -393,7 +393,7 @@ void CDisplayStandardLibrary::Clear(uint16_t color)
 {
  PrintYPosition=0;
  ClearColor=color;	
- iDisplay_Ptr->SetWindow(0,0,iDisplay_Ptr->DISPLAY_WIDTH-1,iDisplay_Ptr->DISPLAY_HEIGHT-1);
+ iDisplay_Ptr->SetWindow(0,0,iDisplay_Ptr->DISPLAY_WIDTH,iDisplay_Ptr->DISPLAY_HEIGHT);
  for(uint32_t y=0;y<iDisplay_Ptr->DISPLAY_HEIGHT;y++)
  {
   for(uint32_t x=0;x<iDisplay_Ptr->DISPLAY_WIDTH;x++) iDisplay_Ptr->OutColor(color);

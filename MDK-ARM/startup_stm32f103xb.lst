@@ -497,12 +497,12 @@ ARM Macro Assembler    Page 8
               00000000 
 Command Line: --xref --diag_suppress=9931 --cpu=Cortex-M3 --apcs=interwork --de
 pend=stm32f103c8t6amigafloppyemulator\startup_stm32f103xb.d -ostm32f103c8t6amig
-afloppyemulator\startup_stm32f103xb.o -IE:\STM32F103C8T6AmigaFloppyEmulator\MDK
--ARM\RTE -Ij:\Tools\Keil5\ARM\PACK\ARM\CMSIS\4.5.0\CMSIS\Include -Ij:\Tools\Kei
-l5\ARM\PACK\Keil\STM32F1xx_DFP\1.1.0\Device\Include --predefine="__MICROLIB SET
-A 1" --predefine="__UVISION_VERSION SETA 518" --predefine="_RTE_ SETA 1" --pred
-efine="STM32F10X_MD SETA 1" --list=startup_stm32f103xb.lst startup_stm32f103xb.
-s
+afloppyemulator\startup_stm32f103xb.o -IE:\From_STM32\Working\STM32F103C8T6Amig
+aFloppyEmulator\MDK-ARM\RTE -Ij:\Tools\Keil5\ARM\PACK\ARM\CMSIS\4.5.0\CMSIS\Inc
+lude -Ij:\Tools\Keil5\ARM\PACK\Keil\STM32F1xx_DFP\1.1.0\Device\Include --predef
+ine="__MICROLIB SETA 1" --predefine="__UVISION_VERSION SETA 518" --predefine="_
+RTE_ SETA 1" --predefine="STM32F10X_MD SETA 1" --list=startup_stm32f103xb.lst s
+tartup_stm32f103xb.s
 
 
 

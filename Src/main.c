@@ -120,6 +120,8 @@ int main(void)
  GPIO_Init();
  DMA_Init();
  SPI2_Init();
+	
+	
  iDisplay_Ptr->Init();
  cDisplayStandardLibrary.Clear(IDisplay::COLOR_WHITE);
 	
@@ -639,6 +641,7 @@ void PathMenu(const char *path)
    if (n==offset) selected_pos=n;
              else cDisplayStandardLibrary.PutString(0,CDisplayStandardLibrary::FONT_HEIGHT*n,fileInfo.fname,IDisplay::COLOR_BLACK);
   }
+	bool file_ok=true;
 	//переходим к выбранному файлу
 	current_dir=dir[level];  
 	size_t n;
@@ -648,18 +651,21 @@ void PathMenu(const char *path)
    if (res!=FR_OK) break;
 	 if (fileInfo.fname[0]==0) break;
 	}
-	if (n!=index[level]+1) continue;//какая-тоошибка
-	
-  size_t file_name_lenght=strlen(fileInfo.fname);
-	file_name_lenght++;//разделитель
+	size_t file_name_lenght=0;
+	if (n!=index[level]+1) file_ok=false;//нет файлов
+	else
+	{
+	 file_name_lenght=strlen(fileInfo.fname);
+	 file_name_lenght++;//разделитель
+	}
   HAL_Delay(100);
   //ждём нажатий кнопок и выводим имя выбранного файла	
 	int32_t pos=0;
 	uint8_t tick=0;
   while(1)
   {
-   if (tick==0)
-	 {
+   if (tick==0 && file_ok==true)
+	 {		 
 	  pos++;
     if (pos>=file_name_lenght*CDisplayStandardLibrary::FONT_WIDTH) pos-=file_name_lenght*CDisplayStandardLibrary::FONT_WIDTH;
 	  //стираем строчку	
